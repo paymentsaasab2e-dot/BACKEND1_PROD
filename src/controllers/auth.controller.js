@@ -150,12 +150,15 @@ async function sendOTP(req, res) {
       // Continue anyway - OTP is saved in database, user can still verify
     }
 
-    // In development, show OTP in response for testing
-    const showOTP = process.env.NODE_ENV === 'development';
+    // Show OTP for local/testing or when email delivery fails and fallback is enabled.
+    const allowOtpFallback = process.env.ALLOW_OTP_FALLBACK !== 'false';
+    const showOTP = process.env.NODE_ENV === 'development' || (!emailResult.success && allowOtpFallback);
 
     res.json({
       success: true,
-      message: 'OTP sent successfully to your email',
+      message: emailResult.success
+        ? 'OTP sent successfully to your email'
+        : 'OTP generated, but email delivery failed. Use fallback OTP for verification.',
       data: {
         candidateId: candidate.id,
         whatsappNumber: fullWhatsAppNumber,
@@ -624,12 +627,15 @@ async function resendOTP(req, res) {
       // Continue anyway - OTP is saved in database
     }
 
-    // In development, show OTP in response for testing
-    const showOTP = process.env.NODE_ENV === 'development';
+    // Show OTP for local/testing or when email delivery fails and fallback is enabled.
+    const allowOtpFallback = process.env.ALLOW_OTP_FALLBACK !== 'false';
+    const showOTP = process.env.NODE_ENV === 'development' || (!emailResult.success && allowOtpFallback);
 
     res.json({
       success: true,
-      message: 'OTP resent successfully to your email',
+      message: emailResult.success
+        ? 'OTP resent successfully to your email'
+        : 'OTP regenerated, but email delivery failed. Use fallback OTP for verification.',
       data: {
         candidateId: candidate.id,
         whatsappNumber: fullWhatsAppNumber,
