@@ -79,14 +79,21 @@ async function uploadCV(req, res) {
     const parsedData = await parseResumeFromBuffer(file.buffer, file.mimetype, file.originalname);
     console.log('✅ Resume parsing pipeline completed!\n');
     
-    // Extract portfolio URLs from resume text
-    const pdfParse = require('pdf-parse');
-    const pdfData = await pdfParse(file.buffer);
-    const resumeText = pdfData.text;
+    // Extract portfolio URLs from resume text (PDF only here to avoid parser crashes on DOC/DOCX/images)
+    let resumeText = '';
+    if (file.mimetype === 'application/pdf') {
+      try {
+        const pdfParse = require('pdf-parse');
+        const pdfData = await pdfParse(file.buffer);
+        resumeText = pdfData.text || '';
+      } catch (pdfError) {
+        console.warn('⚠️ Could not parse PDF text for portfolio URL extraction:', pdfError.message);
+      }
+    }
     
     // Import extractPortfolioUrls function
     const { extractPortfolioUrls } = require('../services/resume-parser.service');
-    const portfolioUrls = extractPortfolioUrls(resumeText);
+    const portfolioUrls = resumeText ? extractPortfolioUrls(resumeText) : [];
     
     if (portfolioUrls.length > 0) {
       console.log('\n🔗 PORTFOLIO LINKS FOUND (' + portfolioUrls.length + '):');
