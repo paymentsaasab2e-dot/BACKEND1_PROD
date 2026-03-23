@@ -157,6 +157,7 @@ async function getProfileData(req, res) {
         middleName: candidate.profile.fullName?.split(' ').slice(1, -1).join(' ') || '',
         lastName: candidate.profile.fullName?.split(' ').slice(-1)[0] || '',
         email: displayEmail,
+        profilePhotoUrl: candidate.profile.profilePhotoUrl || '',
         phone: candidate.profile.phoneNumber || '',
         phoneCode: mapPhoneCode(candidate.countryCode),
         gender: mapGenderLabel(candidate.profile.gender),
@@ -495,12 +496,30 @@ async function updatePersonalInfo(req, res) {
       gender = genderMap[personalInfo.gender] || null;
     }
 
+    const normalizedEmail = String(personalInfo.email || '').trim().toLowerCase();
+    const existingProfile = await prisma.candidateProfile.findUnique({
+      where: { candidateId },
+      select: { email: true },
+    });
+    let emailToPersist = normalizedEmail;
+    if (normalizedEmail) {
+      const emailOwner = await prisma.candidateProfile.findUnique({
+        where: { email: normalizedEmail },
+        select: { candidateId: true },
+      });
+      const isOwnedByDifferentCandidate =
+        Boolean(emailOwner?.candidateId) && emailOwner.candidateId !== candidateId;
+      if (isOwnedByDifferentCandidate) {
+        emailToPersist = existingProfile?.email || `${candidateId}@temp.local`;
+      }
+    }
+
     // Upsert candidate profile
     await prisma.candidateProfile.upsert({
       where: { candidateId },
       update: {
         fullName,
-        email: personalInfo.email || '',
+        email: emailToPersist || '',
         phoneNumber: personalInfo.phone || null,
         gender: gender || undefined,
         dateOfBirth: dateOfBirth || undefined,
@@ -515,7 +534,7 @@ async function updatePersonalInfo(req, res) {
       create: {
         candidateId,
         fullName,
-        email: personalInfo.email || '',
+        email: emailToPersist || '',
         phoneNumber: personalInfo.phone || null,
         gender: gender || undefined,
         dateOfBirth: dateOfBirth || undefined,
