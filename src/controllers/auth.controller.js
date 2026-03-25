@@ -22,11 +22,11 @@ async function sendOTP(req, res) {
     }
 
     const normalizedEmail = String(email).trim().toLowerCase();
-    const gmailRegex = /^[a-zA-Z0-9._%+-]+@gmail\.com$/;
-    if (!gmailRegex.test(normalizedEmail)) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(normalizedEmail)) {
       return res.status(400).json({
         success: false,
-        message: 'Please enter a valid Gmail address',
+        message: 'Please enter a valid email address',
       });
     }
 
@@ -579,11 +579,11 @@ async function resendOTP(req, res) {
     }
 
     const normalizedEmail = String(email).trim().toLowerCase();
-    const gmailRegex = /^[a-zA-Z0-9._%+-]+@gmail\.com$/;
-    if (!gmailRegex.test(normalizedEmail)) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(normalizedEmail)) {
       return res.status(400).json({
         success: false,
-        message: 'Please enter a valid Gmail address',
+        message: 'Please enter a valid email address',
       });
     }
 
