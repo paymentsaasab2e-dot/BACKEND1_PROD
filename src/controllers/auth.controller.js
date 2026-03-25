@@ -3,6 +3,7 @@ const { generateOTP, getOTPExpiration, isOTPExpired } = require('../utils/otp.ut
 const { generateCandidateId } = require('../utils/candidate.util');
 const { sendOTPEmail } = require('../services/email.service');
 const { OtpStatus } = require('@prisma/client');
+const jwt = require('jsonwebtoken');
 
 /**
  * Send OTP to WhatsApp number
@@ -531,6 +532,16 @@ async function verifyOTP(req, res) {
     const skipCvUpload =
       hasProfileOrResume || candidatePredatesThisOtpBy > RETURNING_USER_MS;
 
+    const token = jwt.sign(
+      {
+        candidateId: candidate.id,
+        whatsappNumber: candidate.whatsappNumber,
+        isVerified: true
+      },
+      process.env.JWT_SECRET || 'saasa_jwt_secret_key_2024',
+      { expiresIn: '30d' }
+    );
+
     res.json({
       success: true,
       message: 'OTP verified successfully',
@@ -538,6 +549,7 @@ async function verifyOTP(req, res) {
         candidateId: candidate.id, // This will be the ID based on WhatsApp number
         isVerified: true,
         skipCvUpload,
+        token,
       },
     });
   } catch (error) {

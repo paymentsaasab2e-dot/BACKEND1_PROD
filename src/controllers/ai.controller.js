@@ -1,5 +1,6 @@
 const { Mistral } = require('@mistralai/mistralai');
 const { z } = require('zod');
+const OpenAI = require('openai');
 
 const sectionConfig = {
   basicInformation: {
@@ -330,6 +331,29 @@ async function runMistralChat(messages, options = {}) {
   return response?.choices?.[0]?.message?.content?.trim() || '';
 }
 
+function getOpenAIClient() {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    const error = new Error('OPENAI_API_KEY is not configured');
+    error.statusCode = 500;
+    throw error;
+  }
+
+  return new OpenAI({ apiKey });
+}
+
+async function runOpenAIChat(messages, options = {}) {
+  const client = getOpenAIClient();
+  const completion = await client.chat.completions.create({
+    model: options.model || 'gpt-4o-mini',
+    messages,
+    temperature: options.temperature ?? 0.3,
+    max_tokens: options.maxTokens ?? 500,
+  });
+
+  return completion?.choices?.[0]?.message?.content?.trim() || '';
+}
+
 function normalizeHistory(history = []) {
   if (!Array.isArray(history)) return [];
 
@@ -475,13 +499,32 @@ async function askProfileQuestions(req, res) {
 
     let message = '';
     try {
-      message = await runMistralChat(messages, {
-        model: 'mistral-small-latest',
-        temperature: 0.5,
-        maxTokens: 220,
-      });
+      // OpenAI first (primary)
+      if (process.env.OPENAI_API_KEY) {
+        try {
+          message = await runOpenAIChat(messages, {
+            model: 'gpt-4o-mini',
+            temperature: 0.5,
+            maxTokens: 220,
+          });
+        } catch (openaiError) {
+          console.error(
+            'OpenAI question generation failed:',
+            openaiError.message || openaiError,
+          );
+        }
+      }
+
+      // Fallback to Mistral (if OpenAI missing/failed)
+      if (!message) {
+        message = await runMistralChat(messages, {
+          model: 'mistral-small-latest',
+          temperature: 0.5,
+          maxTokens: 220,
+        });
+      }
     } catch (error) {
-      console.error('Mistral question generation failed:', error.message);
+      console.error('AI question generation failed:', error.message || error);
       message = getFallbackQuestion(currentSection, missingFields);
     }
 
@@ -544,17 +587,61 @@ async function extractProfileData(req, res) {
       'Do not include markdown fences.',
     ].join('\n');
 
-    const responseText = await runMistralChat(
-      [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage },
-      ],
-      {
-        model: 'mistral-small-latest',
-        temperature: 0.1,
-        maxTokens: 700,
+    let responseText = '';
+    let lastError = null;
+
+    // OpenAI first
+    if (process.env.OPENAI_API_KEY) {
+      try {
+        responseText = await runOpenAIChat(
+          [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMessage },
+          ],
+          {
+            model: 'gpt-4o-mini',
+            temperature: 0.1,
+            maxTokens: 700,
+          },
+        );
+      } catch (openaiError) {
+        console.error(
+          'OpenAI profile extraction failed:',
+          openaiError.message || openaiError,
+        );
+        lastError = openaiError;
       }
-    );
+    }
+
+    // Fallback to Mistral
+    if (!responseText) {
+      try {
+        responseText = await runMistralChat(
+          [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMessage },
+          ],
+          {
+            model: 'mistral-small-latest',
+            temperature: 0.1,
+            maxTokens: 700,
+          }
+        );
+      } catch (mistralError) {
+        console.error(
+          'Mistral profile extraction failed:',
+          mistralError.message || mistralError,
+        );
+        lastError = mistralError;
+      }
+    }
+
+    if (!responseText) {
+      throw (
+        lastError ||
+        new Error('No AI service configured (need OPENAI_API_KEY or MISTRAL_API_KEY)')
+      );
+    }
 
     const parsed = extractJson(responseText);
     const validated = section.extractorSchema.parse(parsed);

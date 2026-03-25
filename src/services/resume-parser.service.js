@@ -23,23 +23,34 @@ const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
  */
 
 /**
- * STEP 2: Parse PDF
- * Extract FULL RAW TEXT from PDF using pdf-parse
+ * STEP 2: Parse Document
+ * Extract FULL RAW TEXT from PDF or DOCX
  * Do NOT extract fields using regex or AI here
  */
-async function parsePDF(buffer) {
+async function parseDocument(buffer, extension) {
   try {
-    console.log('\n📄 STEP 2: PDF Parsing');
-    const data = await pdfParse(buffer);
-    const rawText = data.text;
+    console.log(`\n📄 STEP 2: Document Parsing (${extension})`);
+    let rawText = '';
+
+    if (extension === '.pdf') {
+      const data = await pdfParse(buffer);
+      rawText = data.text;
+    } else if (extension === '.docx' || extension === '.doc') {
+      const mammoth = require('mammoth');
+      const result = await mammoth.extractRawText({ buffer });
+      rawText = result.value;
+    } else {
+      throw new Error(`Unsupported extension for text extraction: ${extension}`);
+    }
+
     console.log(`  ✅ Raw text extracted, length: ${rawText.length} characters`);
     
     return {
       rawText: rawText
     };
   } catch (error) {
-    console.error('Error parsing PDF:', error);
-    throw new Error(`Failed to parse PDF: ${error.message}`);
+    console.error('Error parsing document:', error);
+    throw new Error(`Failed to parse document: ${error.message}`);
   }
 }
 
@@ -223,12 +234,34 @@ Extraction Rules:
 Resume Text:
 ${cleanResumeText}`;
 
-  // Try AI services in order: Mistral -> Gemini -> Anthropic -> OpenAI
+  // Try AI services in order: OpenAI -> Mistral -> Gemini -> Anthropic
   let responseText = '';
   let error = null;
-  
-  // Try Mistral first
-  if (mistral) {
+
+  // Try OpenAI first
+  if (openai) {
+    try {
+      console.log('  📤 Trying OpenAI...');
+      const completion = await openai.chat.completions.create({
+        messages: [{ role: 'user', content: prompt }],
+        model: 'gpt-4o',
+        temperature: 0.3,
+        max_tokens: 4096,
+      });
+      responseText = completion.choices[0]?.message?.content?.trim() || '';
+      if (responseText) {
+        console.log('  ✅ Successfully used OpenAI');
+      } else {
+        throw new Error('Empty response from OpenAI');
+      }
+    } catch (openaiError) {
+      console.log('  ⚠️  OpenAI failed, trying fallback...');
+      error = openaiError;
+    }
+  }
+
+  // Fallback to Mistral
+  if (!responseText && mistral) {
     try {
       console.log('  📤 Trying Mistral AI...');
       const chatResponse = await mistral.chat.complete({
@@ -290,27 +323,7 @@ ${cleanResumeText}`;
     }
   }
   
-  // Fallback to OpenAI
-  if (!responseText && openai) {
-    try {
-      console.log('  📤 Trying OpenAI...');
-      const completion = await openai.chat.completions.create({
-        messages: [{ role: 'user', content: prompt }],
-        model: 'gpt-4o-mini',
-        temperature: 0.3,
-        max_tokens: 4096,
-      });
-      responseText = completion.choices[0]?.message?.content?.trim() || '';
-      if (responseText) {
-        console.log('  ✅ Successfully used OpenAI');
-      } else {
-        throw new Error('Empty response from OpenAI');
-      }
-    } catch (openaiError) {
-      console.log('  ⚠️  OpenAI failed');
-      error = openaiError;
-    }
-  }
+  // (OpenAI handled first above)
   
   if (!responseText) {
     throw new Error(`All AI services failed. Last error: ${error?.message || 'No AI service available'}`);
@@ -589,14 +602,16 @@ async function parseResumeFromBuffer(buffer, mimeType, fileName) {
     console.log('File Type:', mimeType);
     console.log('-'.repeat(80));
     
-    // Validate file type (only PDF)
+    // Validate file type (allow PDF, DOC, DOCX)
     const extension = path.extname(fileName).toLowerCase();
-    if (extension !== '.pdf' && mimeType !== 'application/pdf') {
-      throw new Error(`Unsupported file type: ${extension}. Only PDF files are supported.`);
+    const validExtensions = ['.pdf', '.doc', '.docx'];
+    if (!validExtensions.includes(extension)) {
+      throw new Error(`Unsupported file type: ${extension}. Only PDF and Word files are supported.`);
     }
     
-    // STEP 2: Parse PDF
-    const { rawText } = await parsePDF(buffer);
+    // STEP 2: Parse Document
+    const { rawText } = await parseDocument(buffer, extension);
+
     
     // STEP 3: Text Cleaning
     const cleanResumeText = cleanText(rawText);

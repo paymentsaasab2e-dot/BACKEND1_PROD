@@ -36,7 +36,7 @@ function normalizeMaritalStatus(value) {
  */
 async function uploadCV(req, res) {
   try {
-    const { candidateId } = req.body;
+    const candidateId = req.body.candidateId || req.params.candidateId;
     const file = req.file;
 
     // Validation
@@ -105,15 +105,25 @@ async function uploadCV(req, res) {
     const parsedData = await parseResumeFromBuffer(file.buffer, file.mimetype, file.originalname);
     console.log('✅ Resume parsing pipeline completed!\n');
     
-    // Extract portfolio URLs from resume text (PDF only here to avoid parser crashes on DOC/DOCX/images)
+    // Extract portfolio URLs from resume text
     let resumeText = '';
-    if (file.mimetype === 'application/pdf') {
+    const ext = require('path').extname(file.originalname).toLowerCase();
+    
+    if (ext === '.pdf' || file.mimetype === 'application/pdf') {
       try {
         const pdfParse = require('pdf-parse');
         const pdfData = await pdfParse(file.buffer);
         resumeText = pdfData.text || '';
       } catch (pdfError) {
         console.warn('⚠️ Could not parse PDF text for portfolio URL extraction:', pdfError.message);
+      }
+    } else if (ext === '.docx' || ext === '.doc') {
+      try {
+        const mammoth = require('mammoth');
+        const result = await mammoth.extractRawText({ buffer: file.buffer });
+        resumeText = result.value || '';
+      } catch (docxError) {
+        console.warn('⚠️ Could not parse DOCX text for portfolio URL extraction:', docxError.message);
       }
     }
     
@@ -346,25 +356,11 @@ async function uploadCV(req, res) {
 
         if (existingProfile) {
           // Update existing profile
-          // Only update email if it's different and doesn't conflict with another candidate
-          let emailToUpdate = personalInfo.email || existingProfile.email;
-          if (personalInfo.email && personalInfo.email !== existingProfile.email) {
-            // Check if email exists for another candidate
-            const emailExists = await prisma.candidateProfile.findUnique({
-              where: { email: personalInfo.email },
-            });
-            if (emailExists && emailExists.candidateId !== candidateId) {
-              // Email belongs to another candidate, keep existing email
-              emailToUpdate = existingProfile.email;
-              console.log(`⚠️ Email ${personalInfo.email} already exists for another candidate. Keeping existing email.`);
-            }
-          }
-
           await prisma.candidateProfile.update({
             where: { candidateId: candidateId },
             data: {
               fullName: personalInfo.fullName || existingProfile.fullName,
-              email: emailToUpdate,
+              email: personalInfo.email || existingProfile.email,
               phoneNumber: personalInfo.phoneNumber ?? existingProfile.phoneNumber,
               alternatePhone: personalInfo.alternatePhoneNumber ?? existingProfile.alternatePhone,
               address: personalInfo.address ?? existingProfile.address,
@@ -381,48 +377,7 @@ async function uploadCV(req, res) {
           });
         } else {
           // Create new profile
-          // Check if email already exists
-          let emailToUse = personalInfo.email || '';
-          let profileUpdated = false;
-          
-          if (emailToUse) {
-            const emailExists = await prisma.candidateProfile.findUnique({
-              where: { email: emailToUse },
-            });
-            
-            if (emailExists) {
-              // Email exists - check if it's for the same candidate (shouldn't happen, but handle it)
-              if (emailExists.candidateId === candidateId) {
-                // Same candidate, just update
-                await prisma.candidateProfile.update({
-                  where: { candidateId: candidateId },
-                  data: {
-                    fullName: personalInfo.fullName || emailExists.fullName,
-                    phoneNumber: personalInfo.phoneNumber ?? emailExists.phoneNumber,
-                    alternatePhone: personalInfo.alternatePhoneNumber ?? emailExists.alternatePhone,
-                    address: personalInfo.address ?? emailExists.address,
-                    city: personalInfo.city ?? emailExists.city,
-                    country: personalInfo.country ?? emailExists.country,
-                    linkedinUrl: personalInfo.linkedinProfile ?? emailExists.linkedinUrl,
-                    dateOfBirth: personalInfo.dateOfBirth ? new Date(personalInfo.dateOfBirth) : emailExists.dateOfBirth,
-                    gender: genderEnum ?? emailExists.gender,
-                    maritalStatus: maritalStatusEnum ?? emailExists.maritalStatus,
-                    nationality: personalInfo.nationality ?? emailExists.nationality,
-                    passportNumber: personalInfo.passportNumber ?? emailExists.passportNumber,
-                    updatedAt: new Date(),
-                  },
-                });
-                profileUpdated = true;
-              } else {
-                // Email belongs to another candidate, use temporary email
-                console.log(`⚠️ Email ${emailToUse} already exists for another candidate. Using temporary email.`);
-                emailToUse = `${candidateId}@temp.local`;
-              }
-            }
-          } else {
-            // No email provided, use temporary email
-            emailToUse = `${candidateId}@temp.local`;
-          }
+          const emailToUse = personalInfo.email || `${candidateId}@noemail.local`;
 
           // Only create if we haven't updated above
           if (!profileUpdated) {
@@ -447,45 +402,8 @@ async function uploadCV(req, res) {
           }
         }
       } catch (error) {
-        // If there's still a unique constraint error, try to find and update existing profile
-        if (error.code === 'P2002' && error.meta?.target?.includes('email')) {
-          console.log(`⚠️ Email constraint error. Attempting to find existing profile by email...`);
-          try {
-            const profileByEmail = await prisma.candidateProfile.findUnique({
-              where: { email: personalInfo.email },
-            });
-            
-            if (profileByEmail && profileByEmail.candidateId === candidateId) {
-              // Profile exists for this candidate, just update it
-              await prisma.candidateProfile.update({
-                where: { candidateId: candidateId },
-                data: {
-                  fullName: personalInfo.fullName || profileByEmail.fullName,
-                  phoneNumber: personalInfo.phoneNumber ?? profileByEmail.phoneNumber,
-                  alternatePhone: personalInfo.alternatePhoneNumber ?? profileByEmail.alternatePhone,
-                  address: personalInfo.address ?? profileByEmail.address,
-                  city: personalInfo.city ?? profileByEmail.city,
-                  country: personalInfo.country ?? profileByEmail.country,
-                  linkedinUrl: personalInfo.linkedinProfile ?? profileByEmail.linkedinUrl,
-                  dateOfBirth: personalInfo.dateOfBirth ? new Date(personalInfo.dateOfBirth) : profileByEmail.dateOfBirth,
-                  gender: genderEnum ?? profileByEmail.gender,
-                  maritalStatus: maritalStatusEnum ?? profileByEmail.maritalStatus,
-                  nationality: personalInfo.nationality ?? profileByEmail.nationality,
-                  passportNumber: personalInfo.passportNumber ?? profileByEmail.passportNumber,
-                  updatedAt: new Date(),
-                },
-              });
-              console.log(`✅ Profile updated successfully after handling email constraint.`);
-            } else {
-              console.error(`❌ Email ${personalInfo.email} belongs to a different candidate. Profile not updated.`);
-            }
-          } catch (retryError) {
-            console.error('Error retrying profile update:', retryError);
-            throw retryError;
-          }
-        } else {
-          throw error;
-        }
+        console.error('Error saving candidate profile from CV:', error);
+        throw error;
       }
     }
 

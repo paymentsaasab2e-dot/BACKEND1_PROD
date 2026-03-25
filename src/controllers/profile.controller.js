@@ -158,10 +158,10 @@ async function getProfileData(req, res) {
         lastName: candidate.profile.fullName?.split(' ').slice(-1)[0] || '',
         email: displayEmail,
         profilePhotoUrl: candidate.profile.profilePhotoUrl || '',
-        phone: candidate.profile.phoneNumber || '',
+        phone: candidate.profile.phoneNumber || (candidate.whatsappNumber ? candidate.whatsappNumber.replace(candidate.countryCode, '') : ''),
         phoneCode: mapPhoneCode(candidate.countryCode),
         gender: mapGenderLabel(candidate.profile.gender),
-        dob: candidate.profile.dateOfBirth ? formatDateForDisplay(candidate.profile.dateOfBirth) : '',
+        dob: candidate.profile.dateOfBirth ? new Date(candidate.profile.dateOfBirth).toISOString().split('T')[0] : '',
         country: candidate.profile.country || '',
         city: candidate.profile.city || '',
         employment: mapEmploymentLabel(candidate.profile.employmentStatus),
@@ -1670,11 +1670,13 @@ async function generateSummaryWithAI(req, res) {
       })(),
     };
 
-    // Generate summary using Mistral AI
+    // Generate summary using OpenAI first, fallback to Mistral
     const { Mistral } = require('@mistralai/mistralai');
+    const OpenAI = require('openai');
+    const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
     const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
     
-    if (!MISTRAL_API_KEY) {
+    if (!OPENAI_API_KEY && !MISTRAL_API_KEY) {
       return res.status(500).json({
         success: false,
         message: 'AI service not configured',
@@ -1682,8 +1684,6 @@ async function generateSummaryWithAI(req, res) {
     }
 
     try {
-      const mistral = new Mistral({ apiKey: MISTRAL_API_KEY });
-      
       const prompt = `Generate a professional summary for a candidate based on the following profile information. The summary should be compelling, concise (maximum 500 characters), and highlight their experience, skills, and career achievements.
 
 Profile Information:
@@ -1704,38 +1704,60 @@ Requirements:
 7. Return only the summary text, nothing else
 
 Generate the professional summary:`;
-
-      const chatResponse = await mistral.chat.complete({
-        model: 'mistral-medium-latest',
-        messages: [
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        maxTokens: 200,
-        temperature: 0.7,
-      });
-
-      let generatedSummary = '';
-      if (chatResponse && chatResponse.choices && chatResponse.choices.length > 0) {
-        generatedSummary = chatResponse.choices[0].message?.content?.trim() || '';
-      }
       
-      // Fallback: try to get content from response directly
-      if (!generatedSummary && chatResponse) {
-        if (typeof chatResponse === 'string') {
-          generatedSummary = chatResponse.trim();
-        } else if (chatResponse.content) {
-          generatedSummary = chatResponse.content.trim();
+      let generatedSummary = '';
+
+      // OpenAI first
+      if (OPENAI_API_KEY) {
+        try {
+          const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+          const completion = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: 200,
+            temperature: 0.7,
+          });
+          generatedSummary =
+            completion?.choices?.[0]?.message?.content?.trim() || '';
+        } catch (openaiError) {
+          console.error('❌ OpenAI AI error:', openaiError.message || openaiError);
+        }
+      }
+
+      // Fallback to Mistral
+      if (!generatedSummary && MISTRAL_API_KEY) {
+        const mistral = new Mistral({ apiKey: MISTRAL_API_KEY });
+        const chatResponse = await mistral.chat.complete({
+          model: 'mistral-medium-latest',
+          messages: [
+            {
+              role: 'user',
+              content: prompt,
+            },
+          ],
+          maxTokens: 200,
+          temperature: 0.7,
+        });
+
+        if (chatResponse && chatResponse.choices && chatResponse.choices.length > 0) {
+          generatedSummary = chatResponse.choices[0].message?.content?.trim() || '';
+        }
+        
+        // Fallback: try to get content from response directly
+        if (!generatedSummary && chatResponse) {
+          if (typeof chatResponse === 'string') {
+            generatedSummary = chatResponse.trim();
+          } else if (chatResponse.content) {
+            generatedSummary = chatResponse.content.trim();
+          }
         }
       }
       
       if (!generatedSummary) {
-        throw new Error('Mistral AI returned empty response');
+        throw new Error('AI returned empty response');
       }
       
-      console.log('✅ Summary generated successfully using Mistral AI');
+      console.log('✅ Summary generated successfully');
 
       // Remove any markdown formatting if present
       const cleanSummary = generatedSummary
@@ -2070,102 +2092,14 @@ async function savePortfolioLinks(req, res) {
  */
 async function uploadResumeFile(req, res) {
   try {
-    const { candidateId } = req.params;
-    const file = req.file;
-
-    if (!candidateId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Candidate ID is required',
-      });
-    }
-
-    if (!file) {
-      return res.status(400).json({
-        success: false,
-        message: 'Resume file is required',
-      });
-    }
-
-    // Validate file type
-    const allowedMimeTypes = [
-      'application/pdf',
-      'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    ];
-
-    if (!allowedMimeTypes.includes(file.mimetype)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid file type. Only PDF, DOC, and DOCX files are allowed.',
-      });
-    }
-
-    // Validate file size (5MB max)
-    const maxSize = 5 * 1024 * 1024; // 5MB
-    if (file.size > maxSize) {
-      return res.status(400).json({
-        success: false,
-        message: 'File size exceeds 5MB limit',
-      });
-    }
-
-    const timestamp = Date.now();
-    const sanitizedFileName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const uploadedResume = await uploadBufferToCloudinary({
-      buffer: file.buffer,
-      folder: 'jobportal/resumes',
-      resourceType: 'raw',
-      publicId: `${candidateId}_${timestamp}_${sanitizedFileName}`,
-      originalFilename: file.originalname,
-    });
-    const fileUrl = uploadedResume.secure_url;
-
-    // Update or create Resume record
-    await prisma.resume.upsert({
-      where: { candidateId },
-      update: {
-        fileName: file.originalname,
-        fileUrl: fileUrl,
-        fileSize: file.size,
-        mimeType: file.mimetype,
-        uploadedAt: new Date(),
-      },
-      create: {
-        candidateId,
-        fileName: file.originalname,
-        fileUrl: fileUrl,
-        fileSize: file.size,
-        mimeType: file.mimetype,
-        uploadedAt: new Date(),
-      },
-    });
-
-    // Prepare detailed log data
-    const logData = {
-      fileName: file.originalname || '',
-      fileUrl: fileUrl,
-      fileSize: file.size,
-      uploadedAt: new Date().toISOString(),
-    };
-
-    logProfileSave('Resume', 'uploaded', candidateId, logData);
-
-    res.json({
-      success: true,
-      message: 'Resume uploaded successfully',
-      data: {
-        fileName: file.originalname,
-        fileUrl: fileUrl,
-        fileSize: file.size,
-        mimeType: file.mimetype,
-      },
-    });
+    console.log('🔄 Redirecting resume upload to full AI extraction pipeline...');
+    const { uploadCV } = require('./cv.controller');
+    return await uploadCV(req, res);
   } catch (error) {
     console.error('Error uploading resume:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to upload resume',
+      message: 'Failed to upload resume via extraction pipeline',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }

@@ -300,10 +300,42 @@ Return only the improved text without any additional explanation or formatting. 
     let improvedText = '';
     let lastError = null;
 
-    // Try Mistral first (especially for summary)
-    if (mistral) {
+    // Try OpenAI first (primary)
+    if (openai) {
       try {
-        console.log('🔄 Attempting to improve text with Mistral AI...');
+        console.log('🔄 Attempting to improve text with OpenAI...');
+        const completion = await openai.chat.completions.create({
+          model: 'gpt-3.5-turbo',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.3,
+          max_tokens: context === 'summary' ? 300 : 500,
+        });
+
+        improvedText = completion.choices[0]?.message?.content?.trim() || '';
+        if (improvedText) {
+          console.log('✅ Successfully used OpenAI for text improvement');
+          // Clean up any unwanted prefixes/suffixes
+          improvedText = improvedText
+            .replace(/^(Here is|Here's|Improved|Enhanced|Revised)[\s:]*/i, '')
+            .replace(/^(Summary|Text)[\s:]*/i, '')
+            .trim();
+        } else {
+          console.warn('⚠️ OpenAI returned empty response');
+          lastError = new Error('OpenAI returned empty response');
+        }
+      } catch (openaiError) {
+        console.error('❌ OpenAI error:', openaiError.message || openaiError);
+        lastError = openaiError;
+      }
+    } else {
+      console.warn('⚠️ OpenAI AI not initialized');
+      lastError = new Error('OpenAI AI not configured');
+    }
+
+    // Fallback to Mistral only if OpenAI failed
+    if (!improvedText && mistral) {
+      try {
+        console.log('🔄 Falling back to Mistral AI...');
         const chatResponse = await mistral.chat.complete({
           model: 'mistral-medium-latest', // Using mistral-medium-latest for better results
           messages: [{ role: 'user', content: prompt }],
@@ -328,12 +360,12 @@ Return only the improved text without any additional explanation or formatting. 
         console.error('❌ Mistral AI error:', mistralError.message || mistralError);
         lastError = mistralError;
       }
-    } else {
+    } else if (!improvedText) {
       console.warn('⚠️ Mistral AI not initialized');
-      lastError = new Error('Mistral AI not configured');
+      if (!lastError) lastError = new Error('Mistral AI not configured');
     }
 
-    // Fallback to Gemini only if Mistral failed
+    // Fallback to Gemini only if OpenAI and Mistral failed
     if (!improvedText && genAI) {
       try {
         console.log('🔄 Falling back to Google Gemini...');
@@ -355,7 +387,7 @@ Return only the improved text without any additional explanation or formatting. 
       }
     }
 
-    // Fallback to Anthropic
+    // Fallback to Anthropic only if all above failed
     if (!improvedText && anthropic) {
       try {
         console.log('🔄 Falling back to Anthropic Claude...');
@@ -376,31 +408,6 @@ Return only the improved text without any additional explanation or formatting. 
       } catch (anthropicError) {
         console.error('❌ Anthropic error:', anthropicError.message || anthropicError);
         if (!lastError) lastError = anthropicError;
-      }
-    }
-
-    // Fallback to OpenAI
-    if (!improvedText && openai) {
-      try {
-        console.log('🔄 Falling back to OpenAI...');
-        const completion = await openai.chat.completions.create({
-          model: 'gpt-3.5-turbo',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.3,
-          max_tokens: context === 'summary' ? 300 : 500,
-        });
-        improvedText = completion.choices[0]?.message?.content?.trim() || '';
-        if (improvedText) {
-          console.log('✅ Successfully used OpenAI for text improvement');
-          // Clean up any unwanted prefixes/suffixes
-          improvedText = improvedText
-            .replace(/^(Here is|Here's|Improved|Enhanced|Revised)[\s:]*/i, '')
-            .replace(/^(Summary|Text)[\s:]*/i, '')
-            .trim();
-        }
-      } catch (openaiError) {
-        console.error('❌ OpenAI error:', openaiError.message || openaiError);
-        if (!lastError) lastError = openaiError;
       }
     }
 

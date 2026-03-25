@@ -329,8 +329,31 @@ Return only the formatted HTML without any markdown syntax or extra labels.`;
     let improvedText = '';
     let error = null;
 
-    // Try Mistral first
-    if (mistral) {
+    // Try OpenAI first (primary)
+    if (openai) {
+      try {
+        const completion = await openai.chat.completions.create({
+          model: 'gpt-3.5-turbo',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.3,
+          max_tokens: isProjectSection ? 2000 : 500, // More tokens for structured project output
+        });
+        improvedText = completion.choices[0]?.message?.content?.trim() || '';
+        if (improvedText) {
+          console.log('✅ Successfully used OpenAI for text improvement');
+        } else {
+          console.warn('⚠️ OpenAI returned empty response');
+        }
+      } catch (openaiError) {
+        console.error('❌ OpenAI error:', openaiError.message || openaiError);
+        error = openaiError;
+      }
+    } else {
+      console.warn('⚠️ OpenAI not configured (OPENAI_API_KEY missing)');
+    }
+
+    // Fallback to Mistral if OpenAI failed/unavailable
+    if (!improvedText && mistral) {
       try {
         const chatResponse = await mistral.chat.complete({
           model: 'mistral-large-latest',
@@ -348,7 +371,7 @@ Return only the formatted HTML without any markdown syntax or extra labels.`;
         console.error('❌ Mistral AI error:', mistralError.message || mistralError);
         error = mistralError;
       }
-    } else {
+    } else if (!improvedText) {
       console.warn('⚠️ Mistral AI not configured (MISTRAL_API_KEY missing)');
     }
 
@@ -394,28 +417,7 @@ Return only the formatted HTML without any markdown syntax or extra labels.`;
       console.warn('⚠️ Anthropic Claude not configured (ANTHROPIC_API_KEY missing)');
     }
 
-    // Fallback to OpenAI
-    if (!improvedText && openai) {
-      try {
-        const completion = await openai.chat.completions.create({
-          model: 'gpt-3.5-turbo',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.3,
-          max_tokens: isProjectSection ? 2000 : 500, // More tokens for structured project output
-        });
-        improvedText = completion.choices[0]?.message?.content?.trim() || '';
-        if (improvedText) {
-          console.log('✅ Successfully used OpenAI for text improvement');
-        } else {
-          console.warn('⚠️ OpenAI returned empty response');
-        }
-      } catch (openaiError) {
-        console.error('❌ OpenAI error:', openaiError.message || openaiError);
-        error = openaiError;
-      }
-    } else if (!improvedText) {
-      console.warn('⚠️ OpenAI not configured (OPENAI_API_KEY missing)');
-    }
+    // OpenAI attempted first; no need to fallback here.
 
     if (!improvedText) {
       console.error('All AI services failed:', error);
@@ -877,8 +879,30 @@ ${projectSection}`;
   try {
     let projects = [];
     
-    // Try Mistral first
-    if (mistral) {
+    // Try OpenAI first (primary)
+    if (openai) {
+      try {
+        const completion = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.2,
+          max_tokens: 2000,
+        });
+        const responseText = completion.choices[0]?.message?.content?.trim() || '';
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (parsed.projects && Array.isArray(parsed.projects)) {
+            projects = parsed.projects;
+          }
+        }
+      } catch (err) {
+        console.warn('OpenAI project extraction failed:', err.message);
+      }
+    }
+    
+    // Fallback to Mistral
+    if (projects.length === 0 && mistral) {
       try {
         const chatResponse = await mistral.chat.complete({
           model: 'mistral-large-latest',

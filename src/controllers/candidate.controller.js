@@ -294,10 +294,92 @@ async function deleteCandidate(req, res) {
       });
     }
 
-    // Delete candidate (cascade will handle related records)
-    await prisma.candidate.delete({
-      where: { id: id },
-    });
+    // Manual cascade delete for MongoDB/Prisma (ensure ALL candidate data is removed)
+    // Prisma "onDelete: Cascade" is not always enforced at the database level for Mongo.
+    const deleteAllCandidateData = async () => {
+      const applications = await prisma.application.findMany({
+        where: { candidateId: id },
+        select: { id: true },
+      });
+      const applicationIds = applications.map((a) => a.id);
+
+      const ops = [
+        // Application child collections first
+        ...(applicationIds.length
+          ? [
+              prisma.applicationCommunication.deleteMany({
+                where: { applicationId: { in: applicationIds } },
+              }),
+              prisma.applicationTimeline.deleteMany({
+                where: { applicationId: { in: applicationIds } },
+              }),
+            ]
+          : []),
+
+        // Job/candidate join & AI artifacts
+        prisma.application.deleteMany({ where: { candidateId: id } }),
+        prisma.savedJob.deleteMany({ where: { candidateId: id } }),
+        prisma.aiJobMatch.deleteMany({ where: { candidateId: id } }),
+        prisma.aiProfileInsight.deleteMany({ where: { candidateId: id } }),
+
+        // Notifications / courses / dashboard / analysis
+        prisma.notification.deleteMany({ where: { candidateId: id } }),
+        prisma.courseEnrollment.deleteMany({ where: { candidateId: id } }),
+        prisma.dashboardStats.deleteMany({ where: { candidateId: id } }),
+        prisma.cvAnalysis.deleteMany({ where: { candidateId: id } }),
+
+        // Auth / verification
+        prisma.otpVerification.deleteMany({ where: { candidateId: id } }),
+
+        // Resume + versions
+        prisma.resumeVersion.deleteMany({ where: { candidateId: id } }),
+        prisma.resume.deleteMany({ where: { candidateId: id } }),
+
+        // Core profile sections
+        prisma.education.deleteMany({ where: { candidateId: id } }),
+        prisma.workExperience.deleteMany({ where: { candidateId: id } }),
+        prisma.candidateSkill.deleteMany({ where: { candidateId: id } }),
+        prisma.candidateLanguage.deleteMany({ where: { candidateId: id } }),
+        prisma.careerPreferences.deleteMany({ where: { candidateId: id } }),
+        prisma.candidateSummary.deleteMany({ where: { candidateId: id } }),
+        prisma.candidateGapExplanation.deleteMany({ where: { candidateId: id } }),
+        prisma.candidateInternship.deleteMany({ where: { candidateId: id } }),
+        prisma.candidatePortfolioLinks.deleteMany({ where: { candidateId: id } }),
+
+        // Projects & achievements
+        prisma.candidateProject.deleteMany({ where: { candidateId: id } }),
+        prisma.candidateAcademicAchievement.deleteMany({ where: { candidateId: id } }),
+        prisma.candidateCompetitiveExam.deleteMany({ where: { candidateId: id } }),
+        prisma.candidateCertification.deleteMany({ where: { candidateId: id } }),
+        prisma.candidateAccomplishment.deleteMany({ where: { candidateId: id } }),
+
+        // Legal / health
+        prisma.candidateVisaWorkAuthorization.deleteMany({ where: { candidateId: id } }),
+        prisma.candidateVaccination.deleteMany({ where: { candidateId: id } }),
+
+        // Profile (unique) + final candidate
+        prisma.candidateProfile.deleteMany({ where: { candidateId: id } }),
+        prisma.candidate.delete({ where: { id: id } }),
+      ];
+
+      // Try transactional deletion (MongoDB Atlas supports it). If it fails, fall back to sequential.
+      try {
+        await prisma.$transaction(ops);
+      } catch (txError) {
+        for (const op of ops) {
+          // Each op is a Prisma Promise; awaiting sequentially ensures best-effort cleanup.
+          // Ignore "not found" style errors since we use deleteMany for optional relations.
+          try {
+            await op;
+          } catch (opError) {
+            // If the candidate was already deleted mid-way, stop.
+            if (String(opError?.code || '').toUpperCase() === 'P2025') break;
+          }
+        }
+      }
+    };
+
+    await deleteAllCandidateData();
 
     res.json({
       success: true,

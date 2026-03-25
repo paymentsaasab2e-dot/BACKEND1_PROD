@@ -134,7 +134,7 @@ class FieldMatchingService {
 
   /**
    * AI-powered semantic matching with multi-AI fallback
-   * Tries: Mistral -> Gemini -> Anthropic -> OpenAI -> Simple matching
+   * Tries: OpenAI -> Mistral -> Gemini -> Anthropic -> Simple matching
    */
   async aiMatch(dbFields, modalFields) {
     if (!modalFieldsStructure) {
@@ -163,8 +163,29 @@ Return ONLY the JSON mapping, no explanations:`;
     let responseText = null;
     let error = null;
 
-    // Try Mistral AI first
-    if (this.mistral) {
+    // Try OpenAI first
+    if (this.openai) {
+      try {
+        console.log('  📤 Trying OpenAI for field matching...');
+        const completion = await this.openai.chat.completions.create({
+          messages: [{ role: 'user', content: prompt }],
+          model: 'gpt-4o-mini',
+          temperature: 0.3,
+          max_tokens: 4096,
+        });
+        responseText = completion.choices[0]?.message?.content?.trim() || '';
+        if (responseText) {
+          console.log('  ✅ Successfully used OpenAI for field matching');
+          return this.parseAIResponse(responseText);
+        }
+      } catch (openaiError) {
+        console.log('  ⚠️  OpenAI failed, trying fallback...');
+        error = openaiError;
+      }
+    }
+
+    // Fallback to Mistral
+    if (!responseText && this.mistral) {
       try {
         console.log('  📤 Trying Mistral AI for field matching...');
         const response = await this.mistral.chat.complete({
@@ -233,27 +254,6 @@ Return ONLY the JSON mapping, no explanations:`;
       } catch (anthropicError) {
         console.log('  ⚠️  Anthropic failed, trying fallback...');
         error = anthropicError;
-      }
-    }
-
-    // Fallback to OpenAI
-    if (!responseText && this.openai) {
-      try {
-        console.log('  📤 Trying OpenAI for field matching...');
-        const completion = await this.openai.chat.completions.create({
-          messages: [{ role: 'user', content: prompt }],
-          model: 'gpt-4o-mini',
-          temperature: 0.3,
-          max_tokens: 4096,
-        });
-        responseText = completion.choices[0]?.message?.content?.trim() || '';
-        if (responseText) {
-          console.log('  ✅ Successfully used OpenAI for field matching');
-          return this.parseAIResponse(responseText);
-        }
-      } catch (openaiError) {
-        console.log('  ⚠️  OpenAI failed, falling back to simple matching...');
-        error = openaiError;
       }
     }
 
