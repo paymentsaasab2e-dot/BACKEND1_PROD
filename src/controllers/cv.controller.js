@@ -379,27 +379,25 @@ async function uploadCV(req, res) {
           // Create new profile
           const emailToUse = personalInfo.email || `${candidateId}@noemail.local`;
 
-          // Only create if we haven't updated above
-          if (!profileUpdated) {
-            await prisma.candidateProfile.create({
-              data: {
-                candidateId: candidateId,
-                fullName: personalInfo.fullName || '',
-                email: emailToUse,
-                phoneNumber: personalInfo.phoneNumber || null,
-                alternatePhone: personalInfo.alternatePhoneNumber || null,
-                address: personalInfo.address || null,
-                city: personalInfo.city || null,
-                country: personalInfo.country || null,
-                linkedinUrl: personalInfo.linkedinProfile || null,
-                dateOfBirth: personalInfo.dateOfBirth ? new Date(personalInfo.dateOfBirth) : null,
-                gender: genderEnum,
-                maritalStatus: maritalStatusEnum,
-                nationality: personalInfo.nationality || null,
-                passportNumber: personalInfo.passportNumber || null,
-              },
-            });
-          }
+          await prisma.candidateProfile.create({
+            data: {
+              candidateId: candidateId,
+              fullName: personalInfo.fullName || '',
+              email: emailToUse,
+              phoneNumber: personalInfo.phoneNumber || null,
+              alternatePhone: personalInfo.alternatePhoneNumber || null,
+              address: personalInfo.address || null,
+              city: personalInfo.city || null,
+              country: personalInfo.country || null,
+              linkedinUrl: personalInfo.linkedinProfile || null,
+              dateOfBirth: personalInfo.dateOfBirth ? new Date(personalInfo.dateOfBirth) : null,
+              gender: genderEnum,
+              maritalStatus: maritalStatusEnum,
+              nationality: personalInfo.nationality || null,
+              passportNumber: personalInfo.passportNumber || null,
+            },
+          });
+
         }
       } catch (error) {
         console.error('Error saving candidate profile from CV:', error);
