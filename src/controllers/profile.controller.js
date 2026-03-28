@@ -503,7 +503,7 @@ async function updatePersonalInfo(req, res) {
     });
     let emailToPersist = normalizedEmail;
     if (normalizedEmail) {
-      const emailOwner = await prisma.candidateProfile.findUnique({
+      const emailOwner = await prisma.candidateProfile.findFirst({
         where: { email: normalizedEmail },
         select: { candidateId: true },
       });
