@@ -544,6 +544,82 @@ async function askProfileQuestions(req, res) {
   }
 }
 
+async function suggestJobTitles(req, res) {
+  try {
+    const { query = '', selectedTitles = [] } = req.body || {};
+    const normalizedQuery = String(query || '').trim();
+
+    if (!normalizedQuery) {
+      return res.status(400).json({
+        success: false,
+        message: 'query is required',
+      });
+    }
+
+    const selectedSet = new Set(
+      Array.isArray(selectedTitles)
+        ? selectedTitles
+            .filter((title) => typeof title === 'string')
+            .map((title) => title.trim().toLowerCase())
+        : []
+    );
+
+    const systemPrompt = [
+      'You are a career assistant that suggests relevant professional job titles.',
+      'Given a user query, return only JSON.',
+      'The JSON must have this exact shape: {"suggestions":["Job Title 1","Job Title 2"]}.',
+      'Return 6 concise, realistic, industry-relevant job titles.',
+      'Suggestions should match the user intent even if the query is broad, partial, misspelled, or informal.',
+      'Do not include numbering, explanations, markdown, duplicate titles, or company names.',
+    ].join(' ');
+
+    const userPrompt = [
+      `User query: ${normalizedQuery}`,
+      `Already selected titles: ${Array.isArray(selectedTitles) ? selectedTitles.join(', ') : 'None'}`,
+      'Return relevant alternative or closely matching job titles.',
+    ].join('\n');
+
+    const responseText = await runOpenAIChat(
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      {
+        model: 'gpt-4o-mini',
+        temperature: 0.4,
+        maxTokens: 220,
+      }
+    );
+
+    const parsed = extractJson(responseText);
+    const rawSuggestions = Array.isArray(parsed?.suggestions) ? parsed.suggestions : [];
+
+    const suggestions = Array.from(
+      new Set(
+        rawSuggestions
+          .filter((title) => typeof title === 'string')
+          .map((title) => title.trim())
+          .filter(Boolean)
+      )
+    )
+      .filter((title) => !selectedSet.has(title.toLowerCase()))
+      .slice(0, 6);
+
+    return res.json({
+      success: true,
+      data: {
+        suggestions,
+      },
+    });
+  } catch (error) {
+    console.error('Error suggesting job titles:', error);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || 'Failed to suggest job titles',
+    });
+  }
+}
+
 async function extractProfileData(req, res) {
   try {
     const { currentSection, userMessage = '' } = req.body || {};
@@ -665,5 +741,6 @@ async function extractProfileData(req, res) {
 
 module.exports = {
   askProfileQuestions,
+  suggestJobTitles,
   extractProfileData,
 };
