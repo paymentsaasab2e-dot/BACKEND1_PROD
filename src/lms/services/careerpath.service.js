@@ -1,4 +1,6 @@
 const { prisma } = require('../../lib/prisma');
+const aiLmsService = require('./ai.lms.service');
+const { orchestrateLmsForGoal } = require('./orchestrator.service');
 
 function resolveTitle(modelData, targetType) {
   if (!modelData) return 'Unknown Target';
@@ -48,9 +50,48 @@ async function startMission(userId) {
     where: { userId }
   });
 
+  // Fetch context for AI generation
+  const candidate = await prisma.candidate.findUnique({
+    where: { id: userId },
+    include: {
+      profile: true,
+      skills: { include: { skill: true } },
+      cvAnalysis: true,
+      careerPreferences: true,
+      summary: true
+    }
+  });
+
+  const profileContext = {
+    fullName: candidate?.profile?.fullName,
+    summary: candidate?.summary?.summaryText,
+    skills: candidate?.skills?.map(s => s.skill.name),
+    cvScore: candidate?.cvAnalysis?.cvScore,
+    experienceLevel: candidate?.cvAnalysis?.experienceLevel,
+    targetRoles: candidate?.careerPreferences?.functionalArea ? [candidate.careerPreferences.functionalArea] : (candidate?.careerPreferences?.preferredRoles || [])
+  };
+
+  // Generate Roadmap via AI
+  let aiRoadmap = [];
+  try {
+    aiRoadmap = await aiLmsService.generateAIRoadmap(profileContext);
+  } catch (error) {
+    console.error('AI Roadmap generation failed:', error);
+    // Fallback to basic roadmap if AI fails
+    aiRoadmap = [
+      { id: 'foundation-1', title: 'Complete Profile & Resume', phase: 'foundation', status: 'planned', targetType: 'resume', targetRoute: '/lms/resume-builder' },
+      { id: 'core-1', title: 'Initial Skills Assessment', phase: 'core', status: 'planned', targetType: 'quiz', targetRoute: '/lms/quizzes' }
+    ];
+  }
+
   if (!cp) {
-    cp = await prisma.lmsCareerPath.create({
-      data: { userId, roadmapItems: [] }
+    return prisma.lmsCareerPath.create({
+      data: { 
+        userId, 
+        missionStarted: true,
+        currentPhase: 'foundation',
+        roadmapItems: aiRoadmap 
+      }
     });
   }
 
@@ -58,7 +99,8 @@ async function startMission(userId) {
     where: { userId },
     data: {
       missionStarted: true,
-      currentPhase: 'foundation'
+      currentPhase: 'foundation',
+      roadmapItems: aiRoadmap
     }
   });
 }
@@ -205,6 +247,30 @@ async function fetchNextAction(userId) {
   return null;
 }
 
+async function setLmsGoal(userId, targetRole) {
+  // Use existing functionalArea in CareerPreferences to store the LMS goal
+  await prisma.careerPreferences.upsert({
+    where: { candidateId: userId },
+    update: { functionalArea: targetRole },
+    create: { candidateId: userId, functionalArea: targetRole }
+  });
+
+  // Automatically start the AI mission for this new goal
+  const cp = await startMission(userId);
+  
+  // Fire and forget orchestration for other modules (background process conceptually)
+  // Actually, we'll await it to ensure DB is populated before response returns if we want immediate UI updates
+  // but for faster response we could let it run. User said "modify the lms all page according to the goal".
+  await require('./orchestrator.service').orchestrateLmsForGoal(userId, targetRole);
+
+  return cp;
+}
+
+async function fetchGoalRecommendations(query) {
+  if (!query || query.length < 2) return [];
+  return aiLmsService.generateGoalRecommendations(query);
+}
+
 module.exports = {
   fetchCareerPath,
   startMission,
@@ -213,5 +279,7 @@ module.exports = {
   removeRoadmapItem,
   fetchPlannedItem,
   fetchNextAction,
-  upsertCareerPath
+  upsertCareerPath,
+  setLmsGoal,
+  fetchGoalRecommendations
 };

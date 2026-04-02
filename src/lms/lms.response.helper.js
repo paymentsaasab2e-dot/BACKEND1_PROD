@@ -19,6 +19,7 @@ function sendCreated(res, data, message = undefined) {
 }
 
 function sendError(res, error, status = 500) {
+  console.error('LMS API Error:', error);
   return res.status(status).json({
     success: false,
     error: typeof error === 'string' ? error : error.message || 'Internal Server Error'

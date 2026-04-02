@@ -25,6 +25,13 @@ async function checkCareerPathAdvancement(userId, courseId) {
 
 async function fetchCourses(userId, filters) {
   const { search, category, level, tag, saved, focusTopic } = filters;
+  
+  // Get user's goal to prioritize content
+  const careerPreferences = await prisma.careerPreferences.findUnique({
+    where: { candidateId: userId }
+  });
+  const userGoal = careerPreferences?.functionalArea;
+
   const where = { isPublished: true };
 
   if (search) {
@@ -32,8 +39,15 @@ async function fetchCourses(userId, filters) {
   }
   if (category) where.category = category;
   if (level) where.level = level;
-  if (tag) where.tags = { has: tag };
-  if (focusTopic) where.tags = { has: focusTopic };
+  
+  // If a tag is requested specifically, use it. 
+  // Otherwise, if we have a userGoal and no search/category, filter by userGoal
+  if (tag) {
+    where.tags = { has: tag };
+  } else if (userGoal && !search && !category) {
+    // If no specific filters, show courses tagged with the user's goal
+    where.tags = { has: userGoal };
+  }
 
   let courses = await prisma.lmsCourse.findMany({
     where,
@@ -44,6 +58,17 @@ async function fetchCourses(userId, filters) {
       }
     }
   });
+
+  // If we found NO courses for the user's specific goal, show ALL published courses as fallback
+  if (courses.length === 0 && userGoal && !search && !category && !tag) {
+    courses = await prisma.lmsCourse.findMany({
+      where: { isPublished: true },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        enrollments: { where: { userId } }
+      }
+    });
+  }
 
   if (saved === 'true') {
     courses = courses.filter(c => c.enrollments[0]?.savedAt);

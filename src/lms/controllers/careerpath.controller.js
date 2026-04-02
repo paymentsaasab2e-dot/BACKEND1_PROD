@@ -75,6 +75,25 @@ async function updateCareerPath(req, res) {
   }
 }
 
+async function setGoal(req, res) {
+  try {
+    const cp = await careerpathService.setLmsGoal(req.user.id, req.body.goal);
+    return sendSuccess(res, cp, 'Goal set and mission started');
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+async function recommendGoal(req, res) {
+  try {
+    const query = req.query.q || '';
+    const recommendations = await careerpathService.fetchGoalRecommendations(query);
+    return sendSuccess(res, recommendations);
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
 module.exports = {
-  getCareerPath, startMission, addRoadmapItem, updateRoadmapItem, removeRoadmapItem, getPlannedItem, getNextAction, updateCareerPath
+  getCareerPath, startMission, addRoadmapItem, updateRoadmapItem, removeRoadmapItem, getPlannedItem, getNextAction, updateCareerPath, setGoal, recommendGoal
 };

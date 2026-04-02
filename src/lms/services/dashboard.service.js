@@ -168,7 +168,27 @@ async function fetchDashboardAggregations(userId) {
     suggestedActionRoute: Object.keys(skillMap).length === 0 ? '/lms/courses' : '/lms/interview-prep/mock'
   };
 
-  // 9. AI Insight
+  // 9. Fetch Profile context for AI
+  const candidate = await prisma.candidate.findUnique({
+    where: { id: userId },
+    include: {
+      profile: true,
+      skills: { include: { skill: true } },
+      cvAnalysis: true,
+      careerPreferences: true,
+      summary: true
+    }
+  });
+
+  const profileContext = {
+    fullName: candidate?.profile?.fullName,
+    summary: candidate?.summary?.summaryText,
+    skills: candidate?.skills?.map(s => s.skill.name),
+    cvScore: candidate?.cvAnalysis?.cvScore,
+    experienceLevel: candidate?.cvAnalysis?.experienceLevel,
+    targetRoles: candidate?.careerPreferences?.preferredRoles || []
+  };
+
   const userState = {
     weakSkills,
     resumeStrength,
@@ -177,7 +197,10 @@ async function fetchDashboardAggregations(userId) {
     careerPathItemsCount: careerPathSummary.totalRoadmapItems
   };
 
-  const primaryInsightObj = await aiLmsService.generateDashboardInsight(userState);
+  const primaryInsightObj = await aiLmsService.generateDashboardInsight(userState, profileContext);
+  const personalizedRecs = await aiLmsService.generatePersonalizedRecommendations(profileContext);
+  const dailyFocus = await aiLmsService.generateDailyMomentum(userState, profileContext);
+  const intelligence = await aiLmsService.generateSharedIntelligence(userState, profileContext);
 
   return {
     courseProgress,
@@ -193,7 +216,11 @@ async function fetchDashboardAggregations(userId) {
     interviewReadiness,
     primaryInsight: primaryInsightObj.primaryInsight,
     reason: primaryInsightObj.reason,
-    ctaRoute: primaryInsightObj.ctaRoute
+    ctaRoute: primaryInsightObj.ctaRoute,
+    badge: primaryInsightObj.badge,
+    personalizedRecs,
+    dailyFocus,
+    intelligence
   };
 }
 
