@@ -13,6 +13,7 @@ const cvAnalysisRoutes = require('./routes/cv-analysis.routes');
 const candidateRoutes = require('./routes/candidate.routes');
 const applicationRoutes = require('./routes/application.routes');
 const aiRoutes = require('./routes/ai.routes');
+const lmsRoutes = require('./lms/lms.router');
 
 dotenv.config();
 
@@ -73,6 +74,7 @@ app.use('/api/cv-analysis', cvAnalysisRoutes);
 app.use('/api/candidates', candidateRoutes);
 app.use('/api/applications', applicationRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/lms', lmsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

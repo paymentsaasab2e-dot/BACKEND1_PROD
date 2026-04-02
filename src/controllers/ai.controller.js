@@ -739,8 +739,71 @@ async function extractProfileData(req, res) {
   }
 }
 
+async function generalChat(req, res) {
+  try {
+    const { message, candidateId, history = [] } = req.body || {};
+
+    if (!message) {
+      return res.status(400).json({
+        success: false,
+        message: 'Message is required',
+      });
+    }
+
+    const systemPrompt = [
+      'You are a helpful and professional career assistant for SAASA B2E, an AI-powered recruitment platform.',
+      'Your goal is to help candidates with their career journey, job search, and profile optimization.',
+      'Be encouraging, providing actionable advice and clear answers.',
+      'If the user asks about jobs, you can mention that SAASA uses AI to match them with the best opportunities.',
+      'Keep your responses concise and professional.',
+    ].join(' ');
+
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      ...normalizeHistory(history),
+      { role: 'user', content: message }
+    ];
+
+    let response = '';
+    if (process.env.OPENAI_API_KEY) {
+      response = await runOpenAIChat(messages, {
+        model: 'gpt-4o-mini',
+        temperature: 0.7,
+        maxTokens: 500,
+      });
+    } else if (process.env.MISTRAL_API_KEY) {
+      response = await runMistralChat(messages, {
+        model: 'mistral-small-latest',
+        temperature: 0.7,
+        maxTokens: 500,
+      });
+    }
+
+    if (!response) {
+      return res.status(500).json({
+        success: false,
+        message: 'AI service unavailable',
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        message: response,
+      },
+    });
+  } catch (error) {
+    console.error('Error in general chat:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to process chat message',
+    });
+  }
+}
+
 module.exports = {
   askProfileQuestions,
   suggestJobTitles,
   extractProfileData,
+  generalChat,
 };

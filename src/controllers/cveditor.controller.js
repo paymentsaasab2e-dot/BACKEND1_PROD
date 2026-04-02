@@ -1103,11 +1103,12 @@ function formatDate(date) {
 }
 
 /**
- * Generate HTML from profile data
+ * Generate a professional, recruiter-ready HTML resume from candidate profile data.
+ * This is used as a high-quality fallback when no manual edits exist.
  */
 async function generateHTMLFromProfile(candidateId) {
   try {
-    const [profile, summary, workExperiences, educations, skills, project] = await Promise.all([
+    const [profile, summary, workExperiences, educations, candidateSkills, projects] = await Promise.all([
       prisma.candidateProfile.findUnique({ where: { candidateId } }),
       prisma.candidateSummary.findUnique({ where: { candidateId } }),
       prisma.workExperience.findMany({ where: { candidateId }, orderBy: { startDate: 'desc' } }),
@@ -1116,90 +1117,96 @@ async function generateHTMLFromProfile(candidateId) {
         where: { candidateId },
         include: { skill: true },
       }),
-      prisma.candidateProject.findUnique({ where: { candidateId } }),
+      prisma.candidateProject.findMany({ where: { candidateId } }),
     ]);
 
     let html = '<div class="resume-container">';
 
-    // Name and Title
-    if (profile?.fullName) {
-      html += `<h1>${profile.fullName.toUpperCase()}</h1>`;
-    }
-    if (profile?.employmentStatus) {
-      html += `<p>${profile.employmentStatus}</p>`;
+    // --- HEADER / IDENTITY BLOCK ---
+    const fullName = profile?.fullName || 'Candidate Name';
+    const headline = profile?.employmentStatus || 'Professional';
+    const email = profile?.contactEmail || '';
+    const phone = profile?.phoneNumber || '';
+    const location = profile?.location || '';
+
+    html += `<h1>${fullName.toUpperCase()}</h1>`;
+    html += `<p><strong>${headline}</strong></p>`;
+    
+    const contactLinks = [];
+    if (email) contactLinks.push(email);
+    if (phone) contactLinks.push(phone);
+    if (location) contactLinks.push(location);
+    if (contactLinks.length > 0) {
+      html += `<p>${contactLinks.join(' | ')}</p>`;
     }
 
-    // Summary
+    // --- PROFESSIONAL SUMMARY ---
     if (summary?.summaryText) {
-      html += '<h2>Summary</h2>';
+      html += '<h2>Professional Summary</h2>';
       html += `<p>${summary.summaryText}</p>`;
     }
 
-    // Experience
+    // --- WORK EXPERIENCE ---
     if (workExperiences && workExperiences.length > 0) {
-      html += '<h2>Experience</h2>';
-      workExperiences.forEach(exp => {
-        html += `<h3>${exp.jobTitle}${exp.company ? ` at ${exp.company}` : ''}</h3>`;
-        if (exp.startDate) {
-          const startDate = new Date(exp.startDate).getFullYear();
-          const endDate = exp.endDate ? new Date(exp.endDate).getFullYear() : (exp.isCurrentJob ? 'Present' : '');
-          html += `<p>${startDate} - ${endDate}</p>`;
+      html += '<h2>Work Experience</h2>';
+      workExperiences.forEach((exp, idx) => {
+        const company = exp.company || 'Company';
+        const role = exp.jobTitle || 'Role';
+        const start = exp.startDate ? new Date(exp.startDate).getFullYear() : '';
+        const end = exp.isCurrentJob ? 'Present' : (exp.endDate ? new Date(exp.endDate).getFullYear() : '');
+        const duration = start ? `${start} – ${end}` : '';
+
+        html += `<h3><strong>${company}</strong></h3>`;
+        html += `<p>${role} | ${duration}</p>`;
+        
+        const description = exp.jobDescription || exp.responsibilities;
+        if (description) {
+          const sentences = description.split(/[.!?]+/).filter(s => s.trim().length > 5);
+          if (sentences.length > 1) {
+            html += '<ul>';
+            sentences.forEach(s => html += `<li>${s.trim()}</li>`);
+            html += '</ul>';
+          } else {
+            html += `<p>${description}</p>`;
+          }
         }
-        if (exp.jobDescription || exp.responsibilities) {
-          html += `<p>${exp.jobDescription || exp.responsibilities}</p>`;
-        }
+        if (idx < workExperiences.length - 1) html += '<p><br></p>';
       });
     }
 
-    // Education
+    // --- EDUCATION ---
     if (educations && educations.length > 0) {
       html += '<h2>Education</h2>';
-      educations.forEach(edu => {
-        html += `<h3>${edu.degree}</h3>`;
-        html += `<p>${edu.institution}</p>`;
-        if (edu.startYear) {
-          html += `<p>${edu.startYear} - ${edu.endYear || 'Present'}</p>`;
-        }
+      educations.forEach((edu, idx) => {
+        html += `<h3><strong>${edu.institution}</strong></h3>`;
+        html += `<p>${edu.degree} | ${edu.startYear} – ${edu.endYear || 'Present'}</p>`;
+        if (idx < educations.length - 1) html += '<p><br></p>';
       });
     }
 
-    // Skills
-    if (skills && skills.length > 0) {
+    // --- PROJECTS ---
+    if (projects && projects.length > 0) {
+      const formattedProjects = projects.map(p => ({
+        title: p.projectTitle,
+        date: p.startDate && p.endDate ? `${formatDate(p.startDate)} – ${formatDate(p.endDate)}` : '',
+        description: p.projectDescription || p.responsibilities || '',
+        technologies: p.technologies?.join(', ') || ''
+      }));
+      html += formatProjectsToHTML(formattedProjects);
+    }
+
+    // --- SKILLS ---
+    if (candidateSkills && candidateSkills.length > 0) {
       html += '<h2>Skills</h2>';
-      html += '<ul>';
-      skills.forEach(skill => {
-        const skillName = skill.skill?.name || skill.skillId;
-        if (skillName) {
-          html += `<li>${skillName}</li>`;
-        }
-      });
-      html += '</ul>';
-    }
-
-    // Projects - Format from database project
-    if (project) {
-      const projectsArray = [{
-        title: project.projectTitle,
-        date: project.startDate && project.endDate 
-          ? `${formatDate(project.startDate)} - ${formatDate(project.endDate)}`
-          : project.startDate 
-            ? formatDate(project.startDate)
-            : project.endDate 
-              ? formatDate(project.endDate)
-              : '',
-        technologies: project.technologies && project.technologies.length > 0 
-          ? project.technologies.join(', ')
-          : '',
-        description: project.projectDescription || project.responsibilities || '',
-      }];
-      html += formatProjectsToHTML(projectsArray);
+      const skillNames = candidateSkills.map(s => s.skill?.name || s.skillId).filter(Boolean);
+      html += `<p>${skillNames.join(', ')}</p>`;
     }
 
     html += '</div>';
     return html;
   } catch (error) {
     console.error('Error generating HTML from profile:', error);
-    return '<div class="resume-container"><h1>Your Resume</h1><p>Start editing your resume...</p></div>';
+    return '<div class="resume-container"><h1>Candidate Resume</h1><p>Internal profile data fetch failed. Start editing manually...</p></div>';
   }
 }
 
