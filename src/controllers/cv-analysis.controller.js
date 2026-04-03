@@ -195,6 +195,56 @@ async function analyzeCV(req, res) {
 
     console.log('✅ CV Analysis completed');
     console.log('Final CV Score:', cvScore);
+
+    // AI Job Matching Preview (Terminal Only)
+    try {
+      const activeJobs = await prisma.job.findMany({
+        where: { isActive: true },
+        include: { 
+          company: { select: { name: true } },
+          client: { select: { companyName: true } }
+        },
+        take: 50
+      });
+
+      const candidateSkills = candidate.skills.map(ks => ks.skill.name.toLowerCase());
+      const candidateTitles = candidate.workExperiences.map(we => we.jobTitle.toLowerCase());
+      
+      const matched = activeJobs.map(job => {
+        const jobSkills = (job.skills || []).map(s => typeof s === 'string' ? s.toLowerCase() : '');
+        const overlap = candidateSkills.filter(s => jobSkills.includes(s));
+        
+        const skillArrayLength = Math.max(jobSkills.filter(Boolean).length, 1);
+        let score = (overlap.length / skillArrayLength) * 100;
+        const titleMatch = candidateTitles.some(t => job.title.toLowerCase().includes(t));
+        if (titleMatch) score += 30;
+        
+        return {
+          title: job.title,
+          company: job.company?.name || job.client?.companyName || 'Unknown',
+          score: Math.min(Math.round(score), 99),
+          criteria: titleMatch ? `Title Match + ${overlap.length} Skills` : `${overlap.length} Skills Match`
+        };
+      })
+      .filter(m => m.score > 30)
+      .sort((a, b) => b.score - a.score);
+
+      console.log('\n' + '-'.repeat(40));
+      console.log(`🎯 PERSONALIZED JOB MATCHES FOUND: ${matched.length}`);
+      console.log('-'.repeat(40));
+      
+      if (matched.length > 0) {
+        matched.slice(0, 10).forEach((m, i) => {
+          console.log(`${i+1}. found job: ${m.title} (${m.company}) - matches score: ${m.score}% - according to extracted data: ${m.criteria}`);
+        });
+      } else {
+        console.log('No relevant job matches found for this CV profile.');
+      }
+      console.log('-'.repeat(40) + '\n');
+    } catch (matchError) {
+      console.log('Could not generate job match preview in terminal:', matchError.message);
+    }
+
     console.log('='.repeat(80) + '\n');
 
     res.json({

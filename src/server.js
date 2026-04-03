@@ -14,6 +14,7 @@ const candidateRoutes = require('./routes/candidate.routes');
 const applicationRoutes = require('./routes/application.routes');
 const aiRoutes = require('./routes/ai.routes');
 const lmsRoutes = require('./lms/lms.router');
+const lmsAiRoutes = require('./routes/lms-ai.routes');
 
 dotenv.config();
 
@@ -30,7 +31,15 @@ app.use(cors({
   origin: (origin, callback) => {
     // Allow non-browser requests (no Origin header)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
+    
+    console.log(`[CORS DEBUG] Origin: ${origin}`);
+    console.log(`[CORS DEBUG] Allowed: ${allowedOrigins.join(', ')}`);
+
+    if (allowedOrigins.includes(origin) || origin.includes('localhost') || origin.includes('127.0.0.1')) {
+      return callback(null, true);
+    }
+    
+    console.error(`[CORS ERROR] Blocked: ${origin}`);
     return callback(new Error(`CORS blocked for origin: ${origin}`));
   },
   credentials: true,
@@ -75,6 +84,7 @@ app.use('/api/candidates', candidateRoutes);
 app.use('/api/applications', applicationRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/lms', lmsRoutes);
+app.use('/api/lms/questions', lmsAiRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

@@ -542,6 +542,7 @@ model CandidateCertification {
   credentialUrl       String?
   certificateFile     String?
   documents           String[]  @default([]) // URLs to uploaded certificate/document files
+  
   description         String?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
@@ -1142,4 +1143,46 @@ model LmsInterviewSet {
   user             Candidate @relation("LmsInterviewSets", fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("lms_interview_sets")
+}
+
+model LmsAnswerEvaluation {
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  candidateId       String   @db.ObjectId
+  questionText      String
+  candidateAnswer   String
+  domain            String
+  difficulty        String
+  skillTag          String?
+  score             Float    @default(0)     // 0–100 (Final adjusted score)
+  rawAiScore        Float    @default(0)     // Original AI score before adjustments
+  authenticityScore Float    @default(1.0)   // 0–1 (1 = likely human, 0 = likely AI/Copied)
+  timeTaken         Int      @default(0)     // Seconds
+  confidence        Float    @default(0)     // 0–1
+  strengths         String[] @default([])
+  weaknesses        String[] @default([])
+  suggestions       String[] @default([])
+  contextData       Json?                    // Stores session context (prev scores, etc.)
+  evaluatedAt       DateTime @default(now())
+
+  @@map("lms_answer_evaluations")
+  @@index([candidateId])
+  @@index([domain])
+  @@index([skillTag])
+}
+
+model LmsInterviewReport {
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  candidateId       String   @db.ObjectId
+  domain            String
+  overallScore      Float
+  domainPerformance Json     // { rank, percentile, avgScore }
+  strongestSkills   String[]
+  weakestSkills     String[]
+  improvementAreas  String[]
+  recommendation    String
+  authenticityAvg   Float
+  generatedAt       DateTime @default(now())
+
+  @@map("lms_interview_reports")
+  @@index([candidateId])
 }

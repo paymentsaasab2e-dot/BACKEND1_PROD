@@ -614,7 +614,8 @@ module.exports = {
   generateDailyMomentum,
   generateSharedIntelligence,
   generateOrchestrationPlan,
-  generateGoalRecommendations
+  generateGoalRecommendations,
+  generateLocationRecommendations
 };
 
 async function generateGoalRecommendations(query) {
@@ -638,6 +639,27 @@ async function generateGoalRecommendations(query) {
   return [];
 }
 
+async function generateLocationRecommendations(query) {
+  const prompt = `Based on the partial location search query "${query}", suggest 12 professional city and country pairings. 
+  Focus on major tech and finance hubs globally if the query is general, but if specific, provide all relevant cities within that region.
+  Return ONLY a JSON array of strings in the format "City, Country" or just "Country" if appropriate. 
+  Example: ["San Francisco, USA", "London, UK", "Singapore"]`;
+
+  try {
+    const openai = getOpenAIClient();
+    if (openai) {
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.4,
+      });
+      return extractJson(completion.choices[0].message.content) || [];
+    }
+  } catch (error) {
+     console.error('generateLocationRecommendations failed:', error.message);
+  }
+  return [];
+}
 async function generateOrchestrationPlan(targetRole) {
   const prompt = `You are an LMS Architect. Generate a personalized learning plan for a candidate wanting to become a "${targetRole}".
   
