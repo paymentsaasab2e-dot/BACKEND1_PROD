@@ -20,7 +20,7 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const DEFAULT_ALLOWED_ORIGINS = 'http://localhost:3000,https://frontend1-nu-ten.vercel.app';
+const DEFAULT_ALLOWED_ORIGINS = 'http://localhost:3000,http://localhost:3001,https://www.hryantra.com,https://hryantra.com';
 const allowedOrigins = (process.env.FRONTEND_URLS || process.env.FRONTEND_URL || DEFAULT_ALLOWED_ORIGINS)
   .split(',')
   .map(v => v.trim())
